@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -104,7 +105,7 @@ func main() {
 				}
 			}
 
-			sessionName, err := randomString(11)
+			sessionName, err := randomString(7)
 			if err != nil {
 				return err
 			}
@@ -289,6 +290,10 @@ func runReverseTunnel(remoteHost, user string, port int) error {
 
 func runZellij(server, user string, port int) error {
 	time.Sleep(time.Second)
+
+	fmt.Printf("\n\tJoin via: ssh -p %d %s@%s\n\n", port, user, server)
+	fmt.Println("Press Enter to continue...")
+	bufio.NewReader(os.Stdin).ReadBytes('\n')
 
 	// Connect to SSH agent
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
