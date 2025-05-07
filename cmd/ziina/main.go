@@ -37,13 +37,21 @@ const banner = `
 `
 
 var (
+	// userSessions stores the individual SSH sessions.
 	userSessions = make(map[string][]ssh.Session)
-	sessionName  = ""
-	mu           sync.Mutex
+
+	// sessionName contains the name of the Zellij session.
+	// An empty string denotes that the host has not yet initiaed a session.
+	sessionName = ""
+
+	// mu holds the mutex.
+	mu sync.Mutex
 )
 
+// charset contains the list of available characters for random session-name generation.
 const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+// randomString returns a random string of characters of the given length.
 func randomString(length int) (string, error) {
 	result := make([]byte, length)
 	for i := range result {
@@ -56,85 +64,88 @@ func randomString(length int) (string, error) {
 	return string(result), nil
 }
 
+var app = &cli.App{
+	Name:  "ziina",
+	Usage: "💻 📤 👥 Instant terminal sharing; using Zellij." + "\n" + gorainbow.Rainbow(banner),
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "listen",
+			Aliases: []string{"l"},
+			Usage:   "Listen on this port.",
+			Value:   ":2222",
+		},
+		&cli.StringFlag{
+			Name:     "server",
+			Aliases:  []string{"s"},
+			Usage:    "The SSH server to use as endpoint.",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:    "user",
+			Aliases: []string{"u"},
+			Usage:   "Username for SSH authentication.",
+		},
+		&cli.StringFlag{
+			Name:    "host-key",
+			Aliases: []string{"k"},
+			Usage:   "Path to the private key for SSH authentication.",
+			Value:   "ssh_host_rsa_key",
+		},
+	},
+	Action: func(ctx *cli.Context) error {
+		// Separate out the port from the listen-address.
+		parts := strings.Split(ctx.String("listen"), ":")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid listen address: %s", ctx.String("listen"))
+		}
+		portStr := parts[1]
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return err
+		}
+
+		// use current user's username if no username was specified by user.
+		var u *user.User
+		if ctx.String("user") == "" {
+			var err error
+			u, err = user.Current()
+			if err != nil {
+				return err
+			}
+		}
+
+		// Generate a random Zellij session-name.
+		sessionName, err := randomString(7)
+		if err != nil {
+			return err
+		}
+
+		// Start the SSH server
+		go func() {
+			if err := runServer(ctx.String("listen"), sessionName, ctx.String("host-key")); err != nil {
+				log.Fatalf("SSH server error: %v", err)
+			}
+		}()
+
+		// Start the remote port-forwarding tunnel.
+		go func() {
+			if err := runReverseTunnel(ctx.String("server"), u.Username, port); err != nil {
+				log.Fatalf("SSH remote port-forwarding tunnel terminated: %s\n", err)
+			}
+		}()
+
+		// Start the reverse SSH tunnel
+		return runZellij(ctx.String("server"), sessionName, port)
+	},
+}
+
 func main() {
-	app := &cli.App{
-		Name:  "ziina",
-		Usage: "💻 📤 👥 Instant terminal sharing; using Zellij." + "\n" + gorainbow.Rainbow(banner),
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "listen",
-				Aliases: []string{"l"},
-				Usage:   "Listen on this port.",
-				Value:   ":2222",
-			},
-			&cli.StringFlag{
-				Name:     "server",
-				Aliases:  []string{"s"},
-				Usage:    "The SSH server to use as endpoint.",
-				Required: true,
-			},
-			&cli.StringFlag{
-				Name:    "user",
-				Aliases: []string{"u"},
-				Usage:   "Username for SSH authentication.",
-			},
-			&cli.StringFlag{
-				Name:    "key",
-				Aliases: []string{"k"},
-				Usage:   "Path to the private key for SSH authentication.",
-				Value:   os.Getenv("HOME") + "/.ssh/id_rsa",
-			},
-		},
-		Action: func(ctx *cli.Context) error {
-			parts := strings.Split(ctx.String("listen"), ":")
-			if len(parts) != 2 {
-				return fmt.Errorf("invalid listen address: %s", ctx.String("listen"))
-			}
-			portStr := parts[1]
-			port, err := strconv.Atoi(portStr)
-			if err != nil {
-				return err
-			}
-
-			var u *user.User
-			if ctx.String("user") == "" {
-				var err error
-				u, err = user.Current()
-				if err != nil {
-					return err
-				}
-			}
-
-			sessionName, err := randomString(7)
-			if err != nil {
-				return err
-			}
-
-			// Start the SSH server
-			go func() {
-				if err := runServer(ctx.String("listen"), sessionName); err != nil {
-					log.Fatalf("SSH server error: %v", err)
-				}
-			}()
-
-			go func() {
-				if err := runReverseTunnel(ctx.String("server"), u.Username, port); err != nil {
-					log.Fatalf("SSH remote port-forwarding tunnel terminated: %s\n", err)
-				}
-			}()
-
-			// Start the reverse SSH tunnel
-			return runZellij(ctx.String("server"), sessionName, port)
-			// return runReverseTunnel(ctx.String("server"), u.Username, port)
-		},
-	}
-
 	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func runServer(listenAddr string, sessionName string) error {
+func runServer(listenAddr string, sessionName string, hostKeyFile string) error {
 	// Define the SSH server
 	server := &ssh.Server{
 		Addr: listenAddr,
@@ -142,10 +153,10 @@ func runServer(listenAddr string, sessionName string) error {
 			username := s.User()
 
 			mu.Lock()
+			// Disallow clients connecting with the wrong username.
 			if sessionName == "" {
 				sessionName = username
 			}
-
 			if username != sessionName {
 				return
 			}
@@ -154,8 +165,10 @@ func runServer(listenAddr string, sessionName string) error {
 			userSessions[username] = append(userSessions[username], s)
 			mu.Unlock()
 
+			// The Zellij command.
 			cmd := exec.Command("zellij", "-l", "compact", "attach", "--create", sessionName)
 
+			// Zellij requires a PTY.
 			ptyReq, winCh, isPty := s.Pty()
 			if !isPty {
 				io.WriteString(s, "No PTY requested. Zellij requires a PTY.\n")
@@ -192,18 +205,14 @@ func runServer(listenAddr string, sessionName string) error {
 	}
 
 	// Load the host key from a file using golang.org/x/crypto/ssh to parse
-	privateKeyPath := "ssh_host_rsa_key" // Adjust the path to your host private key
+	privateKeyPath := hostKeyFile
 	keyBytes, err := os.ReadFile(privateKeyPath)
-	if err != nil {
-		return fmt.Errorf("could not read SSH host key: %w", err)
+	if err == nil {
+		private, err := sshcrypto.ParsePrivateKey(keyBytes)
+		if err == nil {
+			server.AddHostKey(private)
+		}
 	}
-
-	private, err := sshcrypto.ParsePrivateKey(keyBytes)
-	if err != nil {
-		return fmt.Errorf("could not parse SSH host key: %w", err)
-	}
-
-	server.AddHostKey(private)
 
 	log.Printf("Starting Ziina server on %s...\n", listenAddr)
 	return server.ListenAndServe()
@@ -213,7 +222,6 @@ func runReverseTunnel(remoteHost, user string, port int) error {
 	log.Println("Starting SSH reverse port-forwarding...")
 
 	// Connect to the running SSH agent
-	// This will look for an environment variable SSH_AUTH_SOCK to determine where the agent socket is
 	sshAgentSocket := os.Getenv("SSH_AUTH_SOCK")
 	if sshAgentSocket == "" {
 		log.Fatalf("SSH agent not found. Please ensure SSH agent is running and SSH_AUTH_SOCK is set.")
@@ -370,7 +378,7 @@ func runZellij(server, user string, port int) error {
 	session.Stderr = os.Stderr
 
 	// Start Zellij
-	if err := session.Start("zellij attach"); err != nil {
+	if err := session.Start("zellij attach " + user); err != nil {
 		return fmt.Errorf("failed to start zellij: %w", err)
 	}
 
