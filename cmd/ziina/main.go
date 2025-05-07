@@ -32,6 +32,7 @@ const banner = `
 ███████╗██║██║██║ ╚████║██║  ██║
 ╚══════╝╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
 `
+
 func main() {
 	app := &cli.App{
 		Name:  "ziina",
@@ -163,18 +164,18 @@ func runServer(listenAddr string) error {
 	privateKeyPath := "ssh_host_rsa_key" // Adjust the path to your host private key
 	keyBytes, err := os.ReadFile(privateKeyPath)
 	if err != nil {
-			return fmt.Errorf("could not read SSH host key: %w", err)
+		return fmt.Errorf("could not read SSH host key: %w", err)
 	}
 
 	private, err := sshcrypto.ParsePrivateKey(keyBytes)
 	if err != nil {
-			return fmt.Errorf("could not parse SSH host key: %w", err)
+		return fmt.Errorf("could not parse SSH host key: %w", err)
 	}
 
 	server.AddHostKey(private)
 
 	log.Printf("Starting Ziina server on %s...\n", listenAddr)
-	return  server.ListenAndServe()
+	return server.ListenAndServe()
 }
 
 func runReverseTunnel(remoteHost, user string, port int) error {
