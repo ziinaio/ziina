@@ -178,6 +178,7 @@ func runServer(listenAddr string, sessionName string, hostKeyFile string) error 
 
 			// Set TERM environment variable
 			cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
+			cmd.Env = append(cmd.Env, fmt.Sprintf("SHELL=%s", os.Getenv("SHELL")))
 
 			// Start Zellij in a new PTY
 			ptmx, err := pty.Start(cmd)
