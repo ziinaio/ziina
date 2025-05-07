@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net"
 	"os"
 	"os/exec"
@@ -32,6 +34,26 @@ const banner = `
 ███████╗██║██║██║ ╚████║██║  ██║
 ╚══════╝╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
 `
+
+var (
+	userSessions = make(map[string][]ssh.Session)
+	sessionName  = ""
+	mu           sync.Mutex
+)
+
+const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func randomString(length int) (string, error) {
+	result := make([]byte, length)
+	for i := range result {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", err
+		}
+		result[i] = charset[num.Int64()]
+	}
+	return string(result), nil
+}
 
 func main() {
 	app := &cli.App{
@@ -82,9 +104,14 @@ func main() {
 				}
 			}
 
+			sessionName, err := randomString(11)
+			if err != nil {
+				return err
+			}
+
 			// Start the SSH server
 			go func() {
-				if err := runServer(ctx.String("listen")); err != nil {
+				if err := runServer(ctx.String("listen"), sessionName); err != nil {
 					log.Fatalf("SSH server error: %v", err)
 				}
 			}()
@@ -96,7 +123,7 @@ func main() {
 			}()
 
 			// Start the reverse SSH tunnel
-			return runZellij(ctx.String("server"), u.Username, port)
+			return runZellij(ctx.String("server"), sessionName, port)
 			// return runReverseTunnel(ctx.String("server"), u.Username, port)
 		},
 	}
@@ -106,24 +133,27 @@ func main() {
 	}
 }
 
-var (
-	userSessions = make(map[string][]ssh.Session)
-	mu           sync.Mutex
-)
-
-func runServer(listenAddr string) error {
+func runServer(listenAddr string, sessionName string) error {
 	// Define the SSH server
 	server := &ssh.Server{
 		Addr: listenAddr,
 		Handler: func(s ssh.Session) {
 			username := s.User()
 
-			// Add session to the user pool
 			mu.Lock()
+			if sessionName == "" {
+				sessionName = username
+			}
+
+			if username != sessionName {
+				return
+			}
+
+			// Add session to the user pool
 			userSessions[username] = append(userSessions[username], s)
 			mu.Unlock()
 
-			cmd := exec.Command("zellij", "-l", "compact", "attach", "--create", username)
+			cmd := exec.Command("zellij", "-l", "compact", "attach", "--create", sessionName)
 
 			ptyReq, winCh, isPty := s.Pty()
 			if !isPty {
