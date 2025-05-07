@@ -8,6 +8,7 @@ require (
 	github.com/gliderlabs/ssh v0.3.8
 	github.com/urfave/cli/v2 v2.27.6
 	golang.org/x/crypto v0.38.0
+	golang.org/x/term v0.32.0
 )
 
 require (
