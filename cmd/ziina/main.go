@@ -297,10 +297,10 @@ func runReverseTunnel(remoteHost, user string, port int) error {
 	return nil
 }
 
-func runZellij(server, user string, port int) error {
+func runZellij(server, sessionName string, port int) error {
 	time.Sleep(time.Second)
 
-	fmt.Printf("\n\tJoin via: ssh -p %d %s@%s\n\n", port, user, server)
+	fmt.Printf("\n\tJoin via: ssh -p %d %s@%s\n\n", port, sessionName, server)
 	fmt.Println("Press Enter to continue...")
 	bufio.NewReader(os.Stdin).ReadBytes('\n')
 
@@ -318,7 +318,7 @@ func runZellij(server, user string, port int) error {
 
 	// SSH config
 	config := &sshcrypto.ClientConfig{
-		User: user,
+		User: sessionName,
 		Auth: []sshcrypto.AuthMethod{
 			sshcrypto.PublicKeysCallback(ag.Signers),
 		},
@@ -379,7 +379,7 @@ func runZellij(server, user string, port int) error {
 	session.Stderr = os.Stderr
 
 	// Start Zellij
-	if err := session.Start("zellij attach " + user); err != nil {
+	if err := session.Start("zellij attach " + sessionName); err != nil {
 		return fmt.Errorf("failed to start zellij: %w", err)
 	}
 
