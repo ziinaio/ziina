@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/creack/pty"
 	"github.com/giancarlosio/gorainbow"
@@ -120,19 +119,33 @@ var app = &cli.App{
 			return err
 		}
 
+		chGuard := make(chan struct{}, 2)
+
+		// Start the remote port-forwarding tunnel.
+		go func() {
+			if err := runReverseTunnel(chGuard, parts[0], ctx.String("server"), u.Username, port); err != nil {
+				log.Fatalf("SSH remote port-forwarding tunnel terminated: %s\n", err)
+			}
+		}()
+
+		<-chGuard
+
 		// Start the SSH server
 		go func() {
-			if err := runServer(ctx.String("listen"), sessionName, ctx.String("host-key")); err != nil {
+			if err := runServer(chGuard, ctx.String("listen"), sessionName, ctx.String("host-key")); err != nil {
 				log.Fatalf("SSH server error: %v", err)
 			}
 		}()
 
-		// Start the remote port-forwarding tunnel.
-		go func() {
-			if err := runReverseTunnel(ctx.String("server"), u.Username, port); err != nil {
-				log.Fatalf("SSH remote port-forwarding tunnel terminated: %s\n", err)
-			}
-		}()
+		<-chGuard
+
+		fmt.Println("")
+		fmt.Printf("\tJoin via: ssh -p %d %s@%s\n", port, sessionName, ctx.String("server"))
+		if parts[0] != "127.0.0.1" {
+			fmt.Printf("\tDirect: ssh -p %d %s@%s\n", port, sessionName, parts[0])
+		}
+		fmt.Println("\nPress Enter to continue...")
+		bufio.NewReader(os.Stdin).ReadBytes('\n')
 
 		// Start the reverse SSH tunnel
 		return runZellij(ctx.String("server"), sessionName, port)
@@ -145,7 +158,7 @@ func main() {
 	}
 }
 
-func runServer(listenAddr string, sessionName string, hostKeyFile string) error {
+func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hostKeyFile string) error {
 	// Define the SSH server
 	server := &ssh.Server{
 		Addr: listenAddr,
@@ -215,11 +228,15 @@ func runServer(listenAddr string, sessionName string, hostKeyFile string) error 
 		}
 	}
 
+	go func() {
+		chGuard <- struct{}{}
+	}()
+
 	log.Printf("Starting Ziina server on %s...\n", listenAddr)
 	return server.ListenAndServe()
 }
 
-func runReverseTunnel(remoteHost, user string, port int) error {
+func runReverseTunnel(chGuard chan struct{}, bindAddr, remoteHost, user string, port int) error {
 	log.Println("Starting SSH reverse port-forwarding...")
 
 	// Connect to the running SSH agent
@@ -271,7 +288,7 @@ func runReverseTunnel(remoteHost, user string, port int) error {
 			}
 
 			// Connect to the local SSH server
-			localConn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
+			localConn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", bindAddr, port))
 			if err != nil {
 				log.Printf("Failed to connect to local service: %v", err)
 				conn.Close()
@@ -288,6 +305,10 @@ func runReverseTunnel(remoteHost, user string, port int) error {
 		}
 	}()
 
+	go func() {
+		chGuard <- struct{}{}
+	}()
+
 	// Wait for interrupt signal to gracefully shutdown
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -298,12 +319,6 @@ func runReverseTunnel(remoteHost, user string, port int) error {
 }
 
 func runZellij(server, sessionName string, port int) error {
-	time.Sleep(time.Second)
-
-	fmt.Printf("\n\tJoin via: ssh -p %d %s@%s\n\n", port, sessionName, server)
-	fmt.Println("Press Enter to continue...")
-	bufio.NewReader(os.Stdin).ReadBytes('\n')
-
 	// Connect to SSH agent
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 	if sshAgentSock == "" {
