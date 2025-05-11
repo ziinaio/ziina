@@ -72,7 +72,7 @@ var app = &cli.App{
 			Name:    "listen",
 			Aliases: []string{"l"},
 			Usage:   "Listen on this port.",
-			Value:   ":2222",
+			Value:   "127.0.0.1:2222",
 		},
 		&cli.StringFlag{
 			Name:     "server",
