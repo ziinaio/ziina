@@ -1,4 +1,4 @@
-package main
+package ziina
 
 import (
 	"bufio"
@@ -63,7 +63,8 @@ func randomString(length int) (string, error) {
 	return string(result), nil
 }
 
-var app = &cli.App{
+// App serves as entry-point for github.com/urfave/cli
+var App = &cli.App{
 	Name:  "ziina",
 	Usage: "💻 📤 👥 Instant terminal sharing; using Zellij." + "\n" + gorainbow.Rainbow(banner),
 	Flags: []cli.Flag{
@@ -150,12 +151,6 @@ var app = &cli.App{
 		// Start the reverse SSH tunnel
 		return runZellij(ctx.String("server"), sessionName, port)
 	},
-}
-
-func main() {
-	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
-	}
 }
 
 func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hostKeyFile string) error {
