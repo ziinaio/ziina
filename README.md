@@ -6,7 +6,7 @@ Ziina lets you invite peers into a local [Zellij](https://github.com/zellij-org/
 It is heavily inspired by [tmate](https://github.com/tmate-io/tmate).
 
 Ziina is (basically) server-less.
-You only need an SSH server with a public IP as an entry-point for your peers.
+You only need an SSH server with a public IP that serves as an entry-point for your peers.
 Your peers only need a standard SSH client.
 
 ## How does it work?
@@ -23,7 +23,7 @@ Once the host terminates Ziina (by closing the Zellij session), the remote port-
 ## Security Model
 
 Both, the remote port-forwarding and the builtin minimal SSH server, are initiated and terminated with Ziina.
-While Ziina is not running, no listening-port will be bound, neither on you server, nor locally.
+While Ziina is not running, no listening-port will be bound, neither on your server, nor locally.
 You can choose the port on which to bind when you start Ziina; default is 2222.
 
 The builtin minimal SSH server implements authentication and authorization solely via the username.
