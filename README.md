@@ -6,15 +6,21 @@ Ziina lets you invite peers into a local [Zellij](https://github.com/zellij-org/
 It is heavily inspired by [tmate](https://github.com/tmate-io/tmate).
 
 Ziina is (basically) server-less.
-You only need an SSH server with a public IP that serves as an entry-point for your peers.
-Your peers only need a standard SSH client.
+You only need a standard OpenSSH server with a public IP that serves as an entry-point for your peers.
+Your peers only need a standard OpenSSH client.
 
 ## How does it work?
 
-Ziina configures an ephemeral SSH remote port-forwarding tunnel on your public SSH servers, pointing back to a local high-port.
+Ziina configures an ephemeral SSH remote port-forwarding tunnel on your public SSH server, pointing back to a local high-port.
 It then starts a minimal SSH server on that local high-port, that throws connecting clients directly into a Zellij session.
 Peers connecting to the high-port on your server via SSH are forwarded through the tunnel directly into your local Zellij session.
 Once the host terminates Ziina (by closing the Zellij session), the remote port-forwarding tunnel and internal SSH server are terminated and all peers automatically kicked.
+
+> The host should always terminate the Zellij session by closing all tabs and panes.
+> Simply detaching will still close Ziina and therefor terminate the builtin SSH server and the tunnel.
+> However, it will leave behind a dangling Zellij session and also likely screw up your peers' terminal, because their connection gets terminated very disgracefully.
+
+### Ziina Session Life-Cycle
 
 ```mermaid
 sequenceDiagram
@@ -46,10 +52,6 @@ sequenceDiagram
     Ziina->>Builtin-SSHd: Terminate builtin SSHd
     Ziina->>Host: Terminate Ziina
 ```
-
-> The host should always terminate the Zellij session by closing all tabs and panes.
-> Simply detaching will still close Ziina and therefor terminate the builtin SSH server and the tunnel.
-> However, it will leave behind a dangling Zellij session and also likely screw up your peers' terminal, because their connection gets terminated very disgracefully.
 
 ## Security Model
 
