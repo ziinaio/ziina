@@ -16,6 +16,12 @@ It then starts a minimal SSH server on that local high-port, that throws connect
 Peers connecting to the high-port on your server via SSH are forwarded through the tunnel directly into your local Zellij session.
 Once the host terminates Ziina (by closing the Zellij session), the remote port-forwarding tunnel and internal SSH server are terminated and all peers automatically kicked.
 
+> The host should always terminate the Zellij session by closing all tabs and panes.
+> Simply detaching will still close Ziina and therefor terminate the builtin SSH server and the tunnel.
+> However, it will leave behind a dangling Zellij session and also likely screw up your peers' terminal, because their connection gets terminated very disgracefully.
+
+### Ziina Session Life-Cycle
+
 ```mermaid
 sequenceDiagram
     participant Host
@@ -46,10 +52,6 @@ sequenceDiagram
     Ziina->>Builtin-SSHd: Terminate builtin SSHd
     Ziina->>Host: Terminate Ziina
 ```
-
-> The host should always terminate the Zellij session by closing all tabs and panes.
-> Simply detaching will still close Ziina and therefor terminate the builtin SSH server and the tunnel.
-> However, it will leave behind a dangling Zellij session and also likely screw up your peers' terminal, because their connection gets terminated very disgracefully.
 
 ## Security Model
 
