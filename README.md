@@ -2,7 +2,7 @@
 
 💻 📤 👥 Instant terminal sharing; using Zellij.
 
-[![asciicast](https://asciinema.org/a/zW01wIIslDnGpIm1e03AEUpuY.svg)](https://asciinema.org/a/zW01wIIslDnGpIm1e03AEUpuY)
+[![asciicast](https://asciinema.org/a/35n5GUFE4PXc1DMdp3BJozRGT.svg)](https://asciinema.org/a/35n5GUFE4PXc1DMdp3BJozRGT)
 
 Ziina lets you invite peers into a local [Zellij](https://github.com/zellij-org/zellij) session over untrusted networks, despite you being behind a NAT gateway.
 It is heavily inspired by [tmate](https://github.com/tmate-io/tmate).
