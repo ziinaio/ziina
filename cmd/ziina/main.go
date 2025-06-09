@@ -75,10 +75,10 @@ var App = &cli.App{
 			Value:   "127.0.0.1:2222",
 		},
 		&cli.StringFlag{
-			Name:     "server",
-			Aliases:  []string{"s"},
-			Usage:    "The SSH server to use as endpoint.",
-			Required: true,
+			Name:    "server",
+			Aliases: []string{"s"},
+			Usage:   "The SSH server to use as endpoint.",
+			Value:   "",
 		},
 		&cli.StringFlag{
 			Name:    "user",
@@ -98,20 +98,26 @@ var App = &cli.App{
 		if len(parts) != 2 {
 			return fmt.Errorf("invalid listen address: %s", ctx.String("listen"))
 		}
+
+		listenHost := parts[0]
+		if ctx.String("server") == "" && listenHost == "127.0.0.1" {
+			return fmt.Errorf("address for remote ssh server not provided consider adding one with -s <server-addr> or make it accessible on your local network with -l 0.0.0.0:2222")
+		}
 		portStr := parts[1]
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
 			return err
 		}
 
-		// use current user's username if no username was specified by user.
-		var u *user.User
-		if ctx.String("user") == "" {
-			var err error
-			u, err = user.Current()
+		// Determine username for SSH authentication.
+		username := ctx.String("user")
+		if username == "" {
+			// Use current user if none specified.
+			currentUser, err := user.Current()
 			if err != nil {
 				return err
 			}
+			username = currentUser.Username
 		}
 
 		// Generate a random Zellij session-name.
@@ -122,14 +128,21 @@ var App = &cli.App{
 
 		chGuard := make(chan struct{}, 2)
 
-		// Start the remote port-forwarding tunnel.
-		go func() {
-			if err := runReverseTunnel(chGuard, parts[0], ctx.String("server"), u.Username, port); err != nil {
-				log.Fatalf("SSH remote port-forwarding tunnel terminated: %s\n", err)
-			}
-		}()
-
-		<-chGuard
+		// Start the remote port-forwarding tunnel if a server endpoint is specified.
+		server := ctx.String("server")
+		// Track which host to connect to for Zellij (server or local listener)
+		serverOrHost := server
+		if server != "" {
+			go func() {
+				if err := runReverseTunnel(chGuard, listenHost, server, username, port); err != nil {
+					log.Fatalf("SSH remote port-forwarding tunnel terminated: %s\n", err)
+				}
+			}()
+			<-chGuard
+		} else {
+			// Pure local mode; skip remote port forwarding
+			log.Println("Skipping remote port-forwarding (local-only mode)")
+		}
 
 		// Start the SSH server
 		go func() {
@@ -137,19 +150,28 @@ var App = &cli.App{
 				log.Fatalf("SSH server error: %v", err)
 			}
 		}()
-
 		<-chGuard
 
+		// Print connection info
 		fmt.Println("")
-		fmt.Printf("\tJoin via: ssh -p %d %s@%s\n", port, sessionName, ctx.String("server"))
-		if parts[0] != "127.0.0.1" {
-			fmt.Printf("\tDirect: ssh -p %d %s@%s\n", port, sessionName, parts[0])
+		if server != "" {
+			fmt.Printf("\tJoin via: ssh -p %d %s@%s\n", port, sessionName, server)
+		}
+		if listenHost != "127.0.0.1" {
+			displayHost := listenHost
+			if displayHost == "0.0.0.0" {
+				displayHost = "<local-addr>"
+			}
+			fmt.Printf("\tDirect: ssh -p %d %s@%s\n", port, sessionName, displayHost)
 		}
 		fmt.Println("\nPress Enter to continue...")
 		bufio.NewReader(os.Stdin).ReadBytes('\n')
 
-		// Start the reverse SSH tunnel
-		return runZellij(ctx.String("server"), sessionName, port)
+		// Start the Zellij session over SSH
+		if server == "" {
+			serverOrHost = listenHost
+		}
+		return runZellij(serverOrHost, sessionName, port)
 	},
 }
 
