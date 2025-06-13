@@ -38,6 +38,9 @@ var (
 	// sessionName contains the name of the Zellij session.
 	// An empty string denotes that the host has not yet initiaed a session.
 	sessionName = ""
+
+	// roUser contains the username for read-only access
+	roUser = ""
 )
 
 // charset contains the list of available characters for random session-name generation.
@@ -114,10 +117,17 @@ var App = &cli.App{
 		}
 
 		// Generate a random Zellij session-name.
-		sessionName, err := randomString(7)
+		sessionName, err = randomString(7)
 		if err != nil {
 			return err
 		}
+
+		// Generate a random username for read-only access.
+		roUser, err = randomString(7)
+		if err != nil {
+			return err
+		}
+		roUser += "-ro"
 
 		chGuard := make(chan struct{}, 2)
 
@@ -148,14 +158,16 @@ var App = &cli.App{
 		// Print connection info
 		fmt.Println("")
 		if server != "" {
-			fmt.Printf("\tJoin via: ssh -p %d %s@%s\n", port, sessionName, server)
+			fmt.Printf("\tJoin via : ssh -p %d %s@%s\n", port, sessionName, server)
+			fmt.Printf("\tRead-only: ssh -p %d %s@%s\n", port, roUser, server)
 		}
 		if listenHost != "127.0.0.1" {
 			displayHost := listenHost
 			if displayHost == "0.0.0.0" {
 				displayHost = "<local-addr>"
 			}
-			fmt.Printf("\tDirect: ssh -p %d %s@%s\n", port, sessionName, displayHost)
+			fmt.Printf("\tDirect          : ssh -p %d %s@%s\n", port, sessionName, displayHost)
+			fmt.Printf("\tDirect read-only: ssh -p %d %s@%s\n", port, roUser, displayHost)
 		}
 		fmt.Println("\nPress Enter to continue...")
 		bufio.NewReader(os.Stdin).ReadBytes('\n')
@@ -174,11 +186,15 @@ func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hos
 		Addr: listenAddr,
 		Handler: func(s ssh.Session) {
 			username := s.User()
+			fmt.Println(username, roUser)
 
 			// Disallow clients connecting with the wrong username.
-			if username != sessionName {
+			if !(username == sessionName || username == roUser) {
 				return
 			}
+
+			// Mark user as read-only if applicable.
+			isReadOnly := username == roUser
 
 			// The Zellij command.
 			cmd := exec.Command("zellij", "-l", "compact", "attach", "--create", sessionName)
@@ -214,9 +230,15 @@ func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hos
 				}
 			}()
 
-			// Connect session input/output to the PTY
-			go io.Copy(ptmx, s)
-			io.Copy(s, ptmx) // blocks until Zellij exits
+			// For read-only connections i/o is only redirected in one direction.
+			if isReadOnly {
+				// Connect session input/output to the PTY
+				io.Copy(s, ptmx) // blocks until Zellij exits
+			} else {
+				// Connect session input/output to the PTY
+				go io.Copy(ptmx, s)
+				io.Copy(s, ptmx) // blocks until Zellij exits
+			}
 		},
 	}
 
