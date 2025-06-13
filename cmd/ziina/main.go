@@ -149,7 +149,7 @@ var App = &cli.App{
 
 		// Start the SSH server
 		go func() {
-			if err := runServer(chGuard, ctx.String("listen"), sessionName, ctx.String("host-key")); err != nil {
+			if err := runServer(chGuard, port, ctx.String("listen"), sessionName, ctx.String("host-key"), server); err != nil {
 				log.Fatalf("SSH server error: %v", err)
 			}
 		}()
@@ -158,16 +158,18 @@ var App = &cli.App{
 		// Print connection info
 		fmt.Println("")
 		if server != "" {
-			fmt.Printf("\tJoin via : ssh -p %d %s@%s\n", port, sessionName, server)
-			fmt.Printf("\tRead-only: ssh -p %d %s@%s\n", port, roUser, server)
+			fmt.Println("Join via:")
+			fmt.Printf("  ssh -p %d %s@%s  # read-write\n", port, sessionName, server)
+			fmt.Printf("  ssh -p %d %s@%s  # read-only\n", port, roUser, server)
 		}
 		if listenHost != "127.0.0.1" {
 			displayHost := listenHost
 			if displayHost == "0.0.0.0" {
 				displayHost = "<local-addr>"
 			}
-			fmt.Printf("\tDirect          : ssh -p %d %s@%s\n", port, sessionName, displayHost)
-			fmt.Printf("\tDirect read-only: ssh -p %d %s@%s\n", port, roUser, displayHost)
+			fmt.Println("Join via:")
+			fmt.Printf("  ssh -p %d %s@%s  # read-write\n", port, sessionName, displayHost)
+			fmt.Printf("  ssh -p %d %s@%s  # read-only\n", port, roUser, displayHost)
 		}
 		fmt.Println("\nPress Enter to continue...")
 		bufio.NewReader(os.Stdin).ReadBytes('\n')
@@ -180,7 +182,7 @@ var App = &cli.App{
 	},
 }
 
-func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hostKeyFile string) error {
+func runServer(chGuard chan struct{}, port int, listenAddr, sessionName, hostKeyFile, entrypoint string) error {
 	// Define the SSH server
 	server := &ssh.Server{
 		Addr: listenAddr,
@@ -210,6 +212,8 @@ func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hos
 			// Set TERM environment variable
 			cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 			cmd.Env = append(cmd.Env, fmt.Sprintf("SHELL=%s", os.Getenv("SHELL")))
+			cmd.Env = append(cmd.Env, fmt.Sprintf("ZIINA_CONNECTION_INFO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, sessionName, entrypoint)))
+			cmd.Env = append(cmd.Env, fmt.Sprintf("ZIINA_CONNECTION_INFO_RO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, roUser, entrypoint)))
 
 			// Start Zellij in a new PTY
 			ptmx, err := pty.Start(cmd)
