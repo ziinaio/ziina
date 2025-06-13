@@ -14,7 +14,6 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -36,15 +35,9 @@ const banner = `
 `
 
 var (
-	// userSessions stores the individual SSH sessions.
-	userSessions = make(map[string][]ssh.Session)
-
 	// sessionName contains the name of the Zellij session.
 	// An empty string denotes that the host has not yet initiaed a session.
 	sessionName = ""
-
-	// mu holds the mutex.
-	mu sync.Mutex
 )
 
 // charset contains the list of available characters for random session-name generation.
@@ -182,18 +175,10 @@ func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hos
 		Handler: func(s ssh.Session) {
 			username := s.User()
 
-			mu.Lock()
 			// Disallow clients connecting with the wrong username.
-			if sessionName == "" {
-				sessionName = username
-			}
 			if username != sessionName {
 				return
 			}
-
-			// Add session to the user pool
-			userSessions[username] = append(userSessions[username], s)
-			mu.Unlock()
 
 			// The Zellij command.
 			cmd := exec.Command("zellij", "-l", "compact", "attach", "--create", sessionName)
