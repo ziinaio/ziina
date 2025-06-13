@@ -14,7 +14,6 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -35,16 +34,28 @@ const banner = `
 ╚══════╝╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
 `
 
-var (
-	// userSessions stores the individual SSH sessions.
-	userSessions = make(map[string][]ssh.Session)
+const examples = `
+Invite peers in you LAN.
 
+	ziina -l 192.168.1.2:2222
+
+Invite peers using **ssh.example.com** as entrypoint for your peers:
+
+	ziina -s ssh.example.com
+
+Show connection info:
+
+		echo $ZIINA_CONNECTION_INFO
+		echo $ZIINA_CONNECTION_INFO_RO
+`
+
+var (
 	// sessionName contains the name of the Zellij session.
 	// An empty string denotes that the host has not yet initiaed a session.
 	sessionName = ""
 
-	// mu holds the mutex.
-	mu sync.Mutex
+	// roUser contains the username for read-only access
+	roUser = ""
 )
 
 // charset contains the list of available characters for random session-name generation.
@@ -65,8 +76,9 @@ func randomString(length int) (string, error) {
 
 // App serves as entry-point for github.com/urfave/cli
 var App = &cli.App{
-	Name:  "ziina",
-	Usage: "💻 📤 👥 Instant terminal sharing; using Zellij." + "\n" + gorainbow.Rainbow(banner),
+	Name:        "ziina",
+	Usage:       "💻 📤 👥 Instant terminal sharing; using Zellij." + "\n" + gorainbow.Rainbow(banner),
+	Description: examples,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:    "listen",
@@ -121,10 +133,17 @@ var App = &cli.App{
 		}
 
 		// Generate a random Zellij session-name.
-		sessionName, err := randomString(7)
+		sessionName, err = randomString(7)
 		if err != nil {
 			return err
 		}
+
+		// Generate a random username for read-only access.
+		roUser, err = randomString(7)
+		if err != nil {
+			return err
+		}
+		roUser += "-ro"
 
 		chGuard := make(chan struct{}, 2)
 
@@ -146,7 +165,7 @@ var App = &cli.App{
 
 		// Start the SSH server
 		go func() {
-			if err := runServer(chGuard, ctx.String("listen"), sessionName, ctx.String("host-key")); err != nil {
+			if err := runServer(chGuard, port, ctx.String("listen"), sessionName, ctx.String("host-key"), server); err != nil {
 				log.Fatalf("SSH server error: %v", err)
 			}
 		}()
@@ -155,14 +174,18 @@ var App = &cli.App{
 		// Print connection info
 		fmt.Println("")
 		if server != "" {
-			fmt.Printf("\tJoin via: ssh -p %d %s@%s\n", port, sessionName, server)
+			fmt.Println("Join via:")
+			fmt.Printf("  ssh -p %d %s@%s  # read-write\n", port, sessionName, server)
+			fmt.Printf("  ssh -p %d %s@%s  # read-only\n", port, roUser, server)
 		}
 		if listenHost != "127.0.0.1" {
 			displayHost := listenHost
 			if displayHost == "0.0.0.0" {
 				displayHost = "<local-addr>"
 			}
-			fmt.Printf("\tDirect: ssh -p %d %s@%s\n", port, sessionName, displayHost)
+			fmt.Println("Join via:")
+			fmt.Printf("  ssh -p %d %s@%s  # read-write\n", port, sessionName, displayHost)
+			fmt.Printf("  ssh -p %d %s@%s  # read-only\n", port, roUser, displayHost)
 		}
 		fmt.Println("\nPress Enter to continue...")
 		bufio.NewReader(os.Stdin).ReadBytes('\n')
@@ -175,25 +198,21 @@ var App = &cli.App{
 	},
 }
 
-func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hostKeyFile string) error {
+func runServer(chGuard chan struct{}, port int, listenAddr, sessionName, hostKeyFile, entrypoint string) error {
 	// Define the SSH server
 	server := &ssh.Server{
 		Addr: listenAddr,
 		Handler: func(s ssh.Session) {
 			username := s.User()
+			fmt.Println(username, roUser)
 
-			mu.Lock()
 			// Disallow clients connecting with the wrong username.
-			if sessionName == "" {
-				sessionName = username
-			}
-			if username != sessionName {
+			if !(username == sessionName || username == roUser) {
 				return
 			}
 
-			// Add session to the user pool
-			userSessions[username] = append(userSessions[username], s)
-			mu.Unlock()
+			// Mark user as read-only if applicable.
+			isReadOnly := username == roUser
 
 			// The Zellij command.
 			cmd := exec.Command("zellij", "-l", "compact", "attach", "--create", sessionName)
@@ -209,6 +228,8 @@ func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hos
 			// Set TERM environment variable
 			cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 			cmd.Env = append(cmd.Env, fmt.Sprintf("SHELL=%s", os.Getenv("SHELL")))
+			cmd.Env = append(cmd.Env, fmt.Sprintf("ZIINA_CONNECTION_INFO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, sessionName, entrypoint)))
+			cmd.Env = append(cmd.Env, fmt.Sprintf("ZIINA_CONNECTION_INFO_RO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, roUser, entrypoint)))
 
 			// Start Zellij in a new PTY
 			ptmx, err := pty.Start(cmd)
@@ -229,9 +250,15 @@ func runServer(chGuard chan struct{}, listenAddr string, sessionName string, hos
 				}
 			}()
 
-			// Connect session input/output to the PTY
-			go io.Copy(ptmx, s)
-			io.Copy(s, ptmx) // blocks until Zellij exits
+			// For read-only connections i/o is only redirected in one direction.
+			if isReadOnly {
+				// Connect session input/output to the PTY
+				io.Copy(s, ptmx) // blocks until Zellij exits
+			} else {
+				// Connect session input/output to the PTY
+				go io.Copy(ptmx, s)
+				io.Copy(s, ptmx) // blocks until Zellij exits
+			}
 		},
 	}
 
