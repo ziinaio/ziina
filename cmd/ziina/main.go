@@ -34,6 +34,21 @@ const banner = `
 ╚══════╝╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
 `
 
+const examples = `
+Invite peers in you LAN.
+
+	ziina -l 192.168.1.2:2222
+
+Invite peers using **ssh.example.com** as entrypoint for your peers:
+
+	ziina -s ssh.example.com
+
+Show connection info:
+
+		echo $ZIINA_CONNECTION_INFO
+		echo $ZIINA_CONNECTION_INFO_RO
+`
+
 var (
 	// sessionName contains the name of the Zellij session.
 	// An empty string denotes that the host has not yet initiaed a session.
@@ -61,8 +76,9 @@ func randomString(length int) (string, error) {
 
 // App serves as entry-point for github.com/urfave/cli
 var App = &cli.App{
-	Name:  "ziina",
-	Usage: "💻 📤 👥 Instant terminal sharing; using Zellij." + "\n" + gorainbow.Rainbow(banner),
+	Name:        "ziina",
+	Usage:       "💻 📤 👥 Instant terminal sharing; using Zellij." + "\n" + gorainbow.Rainbow(banner),
+	Description: examples,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:    "listen",
