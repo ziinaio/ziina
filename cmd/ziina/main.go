@@ -54,6 +54,9 @@ var (
 	// An empty string denotes that the host has not yet initiaed a session.
 	sessionName = ""
 
+	// rwUser contains the username for full read-write acess
+	rwUser = ""
+
 	// roUser contains the username for read-only access
 	roUser = ""
 )
@@ -138,6 +141,13 @@ var App = &cli.App{
 			return err
 		}
 
+		// Generate a random username for full read-write access.
+		// Generate a random username for read-only access.
+		rwUser, err = randomString(7)
+		if err != nil {
+			return err
+		}
+
 		// Generate a random username for read-only access.
 		roUser, err = randomString(7)
 		if err != nil {
@@ -165,7 +175,7 @@ var App = &cli.App{
 
 		// Start the SSH server
 		go func() {
-			if err := runServer(chGuard, port, ctx.String("listen"), sessionName, ctx.String("host-key"), server); err != nil {
+			if err := runServer(chGuard, port, ctx.String("listen"), ctx.String("host-key"), server); err != nil {
 				log.Fatalf("SSH server error: %v", err)
 			}
 		}()
@@ -175,7 +185,7 @@ var App = &cli.App{
 		fmt.Println("")
 		if server != "" {
 			fmt.Println("Join via:")
-			fmt.Printf("  ssh -p %d %s@%s  # read-write\n", port, sessionName, server)
+			fmt.Printf("  ssh -p %d %s@%s  # read-write\n", port, rwUser, server)
 			fmt.Printf("  ssh -p %d %s@%s  # read-only\n", port, roUser, server)
 		}
 		if listenHost != "127.0.0.1" {
@@ -184,7 +194,7 @@ var App = &cli.App{
 				displayHost = "<local-addr>"
 			}
 			fmt.Println("Join via:")
-			fmt.Printf("  ssh -p %d %s@%s  # read-write\n", port, sessionName, displayHost)
+			fmt.Printf("  ssh -p %d %s@%s  # read-write\n", port, rwUser, displayHost)
 			fmt.Printf("  ssh -p %d %s@%s  # read-only\n", port, roUser, displayHost)
 		}
 		fmt.Println("\nPress Enter to continue...")
@@ -198,7 +208,7 @@ var App = &cli.App{
 	},
 }
 
-func runServer(chGuard chan struct{}, port int, listenAddr, sessionName, hostKeyFile, entrypoint string) error {
+func runServer(chGuard chan struct{}, port int, listenAddr, hostKeyFile, entrypoint string) error {
 	// Define the SSH server
 	server := &ssh.Server{
 		Addr: listenAddr,
@@ -207,7 +217,7 @@ func runServer(chGuard chan struct{}, port int, listenAddr, sessionName, hostKey
 			fmt.Println(username, roUser)
 
 			// Disallow clients connecting with the wrong username.
-			if !(username == sessionName || username == roUser) {
+			if !(username == rwUser || username == roUser) {
 				return
 			}
 
@@ -228,7 +238,7 @@ func runServer(chGuard chan struct{}, port int, listenAddr, sessionName, hostKey
 			// Set TERM environment variable
 			cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 			cmd.Env = append(cmd.Env, fmt.Sprintf("SHELL=%s", os.Getenv("SHELL")))
-			cmd.Env = append(cmd.Env, fmt.Sprintf("ZIINA_CONNECTION_INFO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, sessionName, entrypoint)))
+			cmd.Env = append(cmd.Env, fmt.Sprintf("ZIINA_CONNECTION_INFO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, rwUser, entrypoint)))
 			cmd.Env = append(cmd.Env, fmt.Sprintf("ZIINA_CONNECTION_INFO_RO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, roUser, entrypoint)))
 
 			// Start Zellij in a new PTY
@@ -280,7 +290,7 @@ func runServer(chGuard chan struct{}, port int, listenAddr, sessionName, hostKey
 	return server.ListenAndServe()
 }
 
-func runReverseTunnel(chGuard chan struct{}, bindAddr, remoteHost, user string, port int) error {
+func runReverseTunnel(chGuard chan struct{}, bindAddr, remoteHost, username string, port int) error {
 	log.Println("Starting SSH reverse port-forwarding...")
 
 	// Connect to the running SSH agent
@@ -301,7 +311,7 @@ func runReverseTunnel(chGuard chan struct{}, bindAddr, remoteHost, user string, 
 
 	// SSH client configuration
 	config := &sshcrypto.ClientConfig{
-		User: user, // Replace with your SSH username
+		User: username, // Replace with your SSH username
 		Auth: []sshcrypto.AuthMethod{
 			// Use the SSH agent to retrieve keys for authentication
 			sshcrypto.PublicKeysCallback(agentClient.Signers),
@@ -377,7 +387,7 @@ func runZellij(server, sessionName string, port int) error {
 
 	// SSH config
 	config := &sshcrypto.ClientConfig{
-		User: sessionName,
+		User: rwUser,
 		Auth: []sshcrypto.AuthMethod{
 			sshcrypto.PublicKeysCallback(ag.Signers),
 		},
