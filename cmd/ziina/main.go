@@ -214,7 +214,6 @@ func runServer(chGuard chan struct{}, port int, listenAddr, hostKeyFile, entrypo
 		Addr: listenAddr,
 		Handler: func(s ssh.Session) {
 			username := s.User()
-			fmt.Println(username, roUser)
 
 			// Disallow clients connecting with the wrong username.
 			if !(username == rwUser || username == roUser) {
