@@ -11,6 +11,9 @@ Ziina is (basically) server-less.
 You only need a standard OpenSSH server with a public IP that serves as an entry-point for your peers.
 Your peers only need a standard OpenSSH client.
 
+Starting Ziina inside an already open Zellij session will invite peers into that session.
+Otherwise Ziina will spin up a new Zellij session with a random name.
+
 ## How does it work?
 
 Ziina configures an ephemeral SSH remote port-forwarding tunnel on your public SSH server, pointing back to a local high-port.
@@ -69,7 +72,7 @@ By default, Ziina will bind the builtin SSH server to `127.0.0.1:2222`.
 If you explicitly decide to bind it to `:2222`, you can make your Zellij session available on your LAN.
 Peers in your network can then connect to the high-port on your Zellij host, directly, effectively bypassing the round-trip through the tunnel.
 
-If you don't provide an SSH host-key, Ziina will generate a random one on every start.
+If you don't provide an SSH host-key, Ziina will generate a random in-memory key, every time it starts.
 
 ## Installation
 
@@ -90,6 +93,8 @@ Your peers:
 ```
 go install github.com/ziinaio/ziina@latest
 ```
+
+Or you can download the [latest release build](https://github.com/ziinaio/ziina/releases) for your platform.
 
 ## Usage
 
