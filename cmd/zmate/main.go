@@ -1,4 +1,4 @@
-package ziina
+package zmate
 
 import (
 	"bufio"
@@ -26,27 +26,27 @@ import (
 )
 
 const banner = `
-███████╗██╗██╗███╗   ██╗ █████╗ 
-╚══███╔╝██║██║████╗  ██║██╔══██╗
-  ███╔╝ ██║██║██╔██╗ ██║███████║
- ███╔╝  ██║██║██║╚██╗██║██╔══██║
-███████╗██║██║██║ ╚████║██║  ██║
-╚══════╝╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
+███████╗███╗   ███╗ █████╗ ████████╗███████╗
+╚══███╔╝████╗ ████║██╔══██╗╚══██╔══╝██╔════╝
+  ███╔╝ ██╔████╔██║███████║   ██║   █████╗  
+ ███╔╝  ██║╚██╔╝██║██╔══██║   ██║   ██╔══╝  
+███████╗██║ ╚═╝ ██║██║  ██║   ██║   ███████╗
+╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝
 `
 
 const examples = `
 Invite peers in you LAN.
 
-	ziina -l 192.168.1.2:2222
+	zmate -l 192.168.1.2:2222
 
 Invite peers using **ssh.example.com** as entrypoint for your peers:
 
-	ziina -s ssh.example.com
+	zmate -s ssh.example.com
 
 Show connection info:
 
-		echo $ZIINA_CONNECTION_INFO
-		echo $ZIINA_CONNECTION_INFO_RO
+		echo $ZMATE_CONNECTION_INFO
+		echo $ZMATE_CONNECTION_INFO_RO
 `
 
 var (
@@ -59,6 +59,12 @@ var (
 
 	// roUser contains the username for read-only access
 	roUser = ""
+
+	// quickShareMode flags if zmate is running in quick-share mode
+	quickShareMode = false
+
+	// xdgRuntimeDir is needed for Zellij session discovery
+	xdgRuntimeDir = ""
 )
 
 // charset contains the list of available characters for random session-name generation.
@@ -79,7 +85,7 @@ func randomString(length int) (string, error) {
 
 // App serves as entry-point for github.com/urfave/cli
 var App = &cli.App{
-	Name:        "ziina",
+	Name:        "zmate",
 	Usage:       "💻 📤 👥 Instant terminal sharing; using Zellij." + "\n" + gorainbow.Rainbow(banner),
 	Description: examples,
 	Flags: []cli.Flag{
@@ -108,6 +114,9 @@ var App = &cli.App{
 		},
 	},
 	Action: func(ctx *cli.Context) error {
+		// we need this for Zellij session discovery
+		xdgRuntimeDir = os.Getenv("XDG_RUNTIME_DIR")
+
 		// Separate out the port from the listen-address.
 		parts := strings.Split(ctx.String("listen"), ":")
 		if len(parts) != 2 {
@@ -135,10 +144,23 @@ var App = &cli.App{
 			username = currentUser.Username
 		}
 
-		// Generate a random Zellij session-name.
-		sessionName, err = randomString(7)
-		if err != nil {
-			return err
+		// Check ZELLIJ_SESSION_NAME env-var
+		zellijSessionName := os.Getenv("ZELLIJ_SESSION_NAME")
+		if zellijSessionName != "" {
+			fmt.Println("")
+			log.Println("Starting from within Zellij session: ", zellijSessionName)
+			quickShareMode = true
+		}
+
+		if quickShareMode {
+			sessionName = zellijSessionName
+		} else {
+			// Generate a random Zellij session-name.
+			sessionName, err = randomString(7)
+			if err != nil {
+				return err
+			}
+			sessionName = fmt.Sprintf("zmate-%s", sessionName)
 		}
 
 		// Generate a random username for full read-write access.
@@ -197,14 +219,19 @@ var App = &cli.App{
 			fmt.Printf("  ssh -p %d %s@%s  # read-write\n", port, rwUser, displayHost)
 			fmt.Printf("  ssh -p %d %s@%s  # read-only\n", port, roUser, displayHost)
 		}
-		fmt.Println("\nPress Enter to continue...")
-		bufio.NewReader(os.Stdin).ReadBytes('\n')
 
 		// Start the Zellij session over SSH
 		if server == "" {
 			serverOrHost = listenHost
 		}
-		return runZellij(serverOrHost, sessionName, port)
+
+		if quickShareMode {
+			select {} // just keep running
+		} else {
+			fmt.Println("\nPress Enter to continue...")
+			bufio.NewReader(os.Stdin).ReadBytes('\n')
+			return runZellij(serverOrHost, sessionName, port)
+		}
 	},
 }
 
@@ -237,8 +264,9 @@ func runServer(chGuard chan struct{}, port int, listenAddr, hostKeyFile, entrypo
 			// Set TERM environment variable
 			cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 			cmd.Env = append(cmd.Env, fmt.Sprintf("SHELL=%s", os.Getenv("SHELL")))
-			cmd.Env = append(cmd.Env, fmt.Sprintf("ZIINA_CONNECTION_INFO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, rwUser, entrypoint)))
-			cmd.Env = append(cmd.Env, fmt.Sprintf("ZIINA_CONNECTION_INFO_RO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, roUser, entrypoint)))
+			cmd.Env = append(cmd.Env, fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir))
+			cmd.Env = append(cmd.Env, fmt.Sprintf("ZMATE_CONNECTION_INFO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, rwUser, entrypoint)))
+			cmd.Env = append(cmd.Env, fmt.Sprintf("ZMATE_CONNECTION_INFO_RO=%s", fmt.Sprintf("ssh -p %d %s@%s", port, roUser, entrypoint)))
 
 			// Start Zellij in a new PTY
 			ptmx, err := pty.Start(cmd)
@@ -285,7 +313,7 @@ func runServer(chGuard chan struct{}, port int, listenAddr, hostKeyFile, entrypo
 		chGuard <- struct{}{}
 	}()
 
-	log.Printf("Starting Ziina server on %s...\n", listenAddr)
+	log.Printf("Starting zmate server on %s...\n", listenAddr)
 	return server.ListenAndServe()
 }
 

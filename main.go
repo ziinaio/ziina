@@ -4,11 +4,11 @@ import (
 	"log"
 	"os"
 
-	"github.com/ziinaio/ziina/cmd/ziina"
+	"github.com/ziinaio/zmate/cmd/zmate"
 )
 
 func main() {
-	if err := ziina.App.Run(os.Args); err != nil {
+	if err := zmate.App.Run(os.Args); err != nil {
 		log.Fatal(err)
 	}
 }

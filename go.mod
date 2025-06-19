@@ -1,4 +1,4 @@
-module github.com/ziinaio/ziina
+module github.com/ziinaio/zmate
 
 go 1.24.2
 
