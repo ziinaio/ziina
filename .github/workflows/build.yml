@@ -1,4 +1,4 @@
-name: Build and Release Ziina
+name: Build and Release zmate
 
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          BIN_NAME="ziina-${GOOS}-${GOARCH}"
+          BIN_NAME="zmate-${GOOS}-${GOARCH}"
           GOOS=${GOOS} GOARCH=${GOARCH} go build -o dist/$BIN_NAME .
           echo "BIN_NAME=$BIN_NAME" >> $GITHUB_ENV
 
@@ -61,7 +61,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Ziina ${{ github.ref_name }}
+          name: zmate ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           files: artifacts/**/*
         env:
